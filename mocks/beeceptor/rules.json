@@ -1,0 +1,156 @@
+{
+  "_comment": "Import under Beeceptor > Mocking Rules > Bulk import. Path prefix assumes an endpoint named obp-dna-mock.",
+  "rules": [
+    {
+      "method": "POST",
+      "path": "/identity/v1/members/verify-cif",
+      "match": {
+        "bodyContains": "\"cif\":\"12345\""
+      },
+      "statusCode": 200,
+      "headers": {
+        "Content-Type": "application/json"
+      },
+      "body": {
+        "cif": "12345",
+        "customerType": "bank",
+        "memberId": "M-000012345",
+        "firstName": "Ava",
+        "lastName": "Chen",
+        "status": "active",
+        "language": "en",
+        "email": null,
+        "emailOnFile": false,
+        "emailVerified": false
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/identity/v1/members/verify-cif",
+      "match": {
+        "bodyContains": "\"cif\":\"678901\""
+      },
+      "statusCode": 200,
+      "headers": {
+        "Content-Type": "application/json"
+      },
+      "body": {
+        "cif": "678901",
+        "customerType": "trust",
+        "memberId": "M-000678901",
+        "firstName": "Luc",
+        "lastName": "Belanger",
+        "status": "active",
+        "language": "fr-CA",
+        "email": null,
+        "emailOnFile": false,
+        "emailVerified": false
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/identity/v1/members/verify-cif",
+      "match": {
+        "bodyContains": "\"cif\":\"11111\""
+      },
+      "statusCode": 409,
+      "body": {
+        "code": "ALREADY_ENROLLED"
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/identity/v1/members/verify-cif",
+      "statusCode": 404,
+      "body": {
+        "code": "CIF_NOT_FOUND"
+      },
+      "_comment": "catch-all, keep last"
+    },
+    {
+      "method": "POST",
+      "path": "/identity/v1/credentials/authenticate",
+      "match": {
+        "bodyContains": "jdoe1978"
+      },
+      "statusCode": 200,
+      "body": {
+        "cif": "24680",
+        "customerType": "bank",
+        "memberId": "M-000024680",
+        "firstName": "Jean",
+        "lastName": "Doe",
+        "status": "active",
+        "language": "en",
+        "email": null,
+        "emailOnFile": false,
+        "emailVerified": false,
+        "legacyUsername": "jdoe1978"
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/identity/v1/credentials/authenticate",
+      "match": {
+        "bodyContains": "mtremblay"
+      },
+      "statusCode": 200,
+      "body": {
+        "cif": "13579",
+        "customerType": "bank",
+        "memberId": "M-000013579",
+        "firstName": "Marie",
+        "lastName": "Tremblay",
+        "status": "active",
+        "language": "fr-CA",
+        "email": "marie.tremblay@example.ca",
+        "emailOnFile": true,
+        "emailVerified": true,
+        "legacyUsername": "mtremblay"
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/identity/v1/credentials/authenticate",
+      "match": {
+        "bodyContains": "lockeduser"
+      },
+      "statusCode": 423,
+      "body": {
+        "code": "ACCOUNT_LOCKED"
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/identity/v1/credentials/authenticate",
+      "statusCode": 401,
+      "body": {
+        "code": "INVALID_CREDENTIALS"
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/identity/v1/enrollments",
+      "statusCode": 201,
+      "body": {
+        "enrolled": true
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/identity/v1/notifications/security-event",
+      "statusCode": 202,
+      "body": {
+        "accepted": true
+      }
+    },
+    {
+      "method": "GET",
+      "path": "/identity/v1/credentials/*",
+      "statusCode": 404,
+      "body": {
+        "code": "NOT_FOUND"
+      }
+    }
+  ]
+}

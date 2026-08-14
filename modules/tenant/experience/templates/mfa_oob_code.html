@@ -1,0 +1,17 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head>
+<body style="margin:0;padding:24px;background:#F4F6F9;font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;color:#1B1F24;">
+  <div role="main" style="max-width:560px;margin:0 auto;background:#ffffff;border-radius:10px;padding:32px;">
+    <h1 style="font-size:20px;margin:0 0 8px;">Your verification code</h1>
+    <p style="font-size:15px;line-height:1.6;margin:0 0 16px;">Your one-time code is <strong style="font-size:22px;letter-spacing:3px;">{{ code }}</strong>. It expires shortly. We will never ask you for this code by phone or email.</p>
+    <hr style="border:none;border-top:1px solid #E3E7EC;margin:24px 0;">
+    <h1 lang="fr-CA" style="font-size:20px;margin:0 0 8px;">Votre code de verification</h1>
+    <p lang="fr-CA" style="font-size:15px;line-height:1.6;margin:0 0 16px;">Votre code a usage unique est <strong style="font-size:22px;letter-spacing:3px;">{{ code }}</strong>. Il expire sous peu. Nous ne vous demanderons jamais ce code par telephone ou par courriel.</p>
+    <p style="font-size:12px;color:#5B6472;line-height:1.6;margin-top:28px;">
+      {{ tenant.friendly_name }} &middot; This message was sent to {{ user.email }}.
+      If you did not expect it, contact us immediately.
+    </p>
+  </div>
+</body>
+</html>

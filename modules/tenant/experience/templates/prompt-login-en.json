@@ -1,0 +1,14 @@
+{
+  "login": {
+    "title": "Sign in to Online Banking",
+    "description": "Use the email address or username on your account.",
+    "buttonText": "Sign in",
+    "usernamePlaceholder": "Email address or username",
+    "passwordPlaceholder": "Password",
+    "forgotPasswordText": "Forgot your password?",
+    "footerText": "Need help? Contact us.",
+    "wrong-credentials": "We could not sign you in with those details.",
+    "invalid-email-format": "Enter a valid email address.",
+    "user-blocked": "Access to your account is currently restricted. Please contact us."
+  }
+}

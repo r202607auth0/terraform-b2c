@@ -1,0 +1,14 @@
+{
+  "signup": {
+    "title": "Register for Online Banking",
+    "description": "Enter the account number shown on your statement, then choose a password.",
+    "buttonText": "Continue",
+    "emailPlaceholder": "Email address",
+    "passwordPlaceholder": "Password",
+    "passwordSecurityText": "Use at least 12 characters, with an uppercase letter, a lowercase letter, a number and a symbol.",
+    "footerText": "Already registered? Sign in.",
+    "invalid-email-format": "Enter a valid email address.",
+    "user-exists-error": "An online banking profile already exists for this account.",
+    "custom-script-error-code": "We could not match that account number. Please contact us for help."
+  }
+}

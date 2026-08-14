@@ -1,0 +1,163 @@
+name: auth0-b2c-terraform
+
+on:
+  pull_request:
+    paths:
+      - 'stacks/**'
+      - 'modules/**'
+      - 'environments/**'
+      - '.github/workflows/b2c-terraform.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'stacks/**'
+      - 'modules/**'
+      - 'environments/**'
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: Environment to apply
+        required: true
+        default: dev
+        type: choice
+        options: [dev, qa, staging, prod]
+
+permissions:
+  contents: read
+  id-token: write   # OIDC to AWS for the S3 backend - no long-lived keys
+  pull-requests: write
+
+env:
+  TF_VERSION: '1.9.8'
+  AWS_REGION: ca-central-1
+
+jobs:
+  # -------------------------------------------------------------------------
+  validate:
+    name: fmt + validate + lint actions
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+
+      - name: terraform fmt
+        run: terraform fmt -check -recursive
+
+      - name: terraform validate
+        run: make validate
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+
+      - name: syntax-check Action and custom DB scripts
+        run: |
+          set -e
+          find modules -name '*.js' -print0 | while IFS= read -r -d '' f; do
+            node --check "$f"
+          done
+
+  # -------------------------------------------------------------------------
+  plan:
+    name: plan (${{ matrix.stack }} / ${{ matrix.env }})
+    needs: validate
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        env: [dev]
+        stack: [b2c, tenant]
+    environment: ${{ matrix.env }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_TF_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+
+      - name: plan
+        env:
+          AUTH0_DOMAIN:              ${{ secrets.AUTH0_DOMAIN }}
+          AUTH0_CLIENT_ID:           ${{ secrets.AUTH0_CLIENT_ID }}
+          AUTH0_CLIENT_SECRET:       ${{ secrets.AUTH0_CLIENT_SECRET }}
+          TF_VAR_apim_api_key:       ${{ secrets.APIM_API_KEY }}
+          TF_VAR_action_signing_secret: ${{ secrets.ACTION_SIGNING_SECRET }}
+        run: make plan ENV=${{ matrix.env }} STACK=${{ matrix.stack }}
+
+  # -------------------------------------------------------------------------
+  apply:
+    name: apply (${{ matrix.stack }})
+    needs: validate
+    if: github.event_name == 'workflow_dispatch' || github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    strategy:
+      max-parallel: 1
+      matrix:
+        # b2c must land before tenant: the tenant stack reads b2c's remote state
+        # to build the trigger bindings.
+        stack: [b2c, tenant]
+    environment: ${{ inputs.environment || 'dev' }}   # protection rules provide the approval gate
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_TF_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+
+      - name: apply
+        env:
+          AUTH0_DOMAIN:              ${{ secrets.AUTH0_DOMAIN }}
+          AUTH0_CLIENT_ID:           ${{ secrets.AUTH0_CLIENT_ID }}
+          AUTH0_CLIENT_SECRET:       ${{ secrets.AUTH0_CLIENT_SECRET }}
+          TF_VAR_apim_api_key:       ${{ secrets.APIM_API_KEY }}
+          TF_VAR_action_signing_secret: ${{ secrets.ACTION_SIGNING_SECRET }}
+        run: make apply ENV=${{ inputs.environment || 'dev' }} STACK=${{ matrix.stack }}
+
+  # -------------------------------------------------------------------------
+  e2e:
+    name: postman end-to-end
+    needs: apply
+    if: ${{ (inputs.environment || 'dev') != 'prod' }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+
+      - run: npm install -g newman
+
+      - name: run collection
+        env:
+          AUTH0_DOMAIN:     ${{ secrets.AUTH0_DOMAIN }}
+          HARNESS_ID:       ${{ secrets.TEST_HARNESS_CLIENT_ID }}
+          HARNESS_SECRET:   ${{ secrets.TEST_HARNESS_CLIENT_SECRET }}
+        run: |
+          newman run postman/OBP-B2C-E2E.postman_collection.json \
+            -e postman/OBP-B2C-dev.postman_environment.json \
+            --env-var "auth0_domain=$AUTH0_DOMAIN" \
+            --env-var "harness_client_id=$HARNESS_ID" \
+            --env-var "harness_client_secret=$HARNESS_SECRET" \
+            --reporters cli,junit \
+            --reporter-junit-export newman-results.xml
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: newman-results
+          path: newman-results.xml

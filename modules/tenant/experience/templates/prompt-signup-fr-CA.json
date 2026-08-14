@@ -1,0 +1,14 @@
+{
+  "signup": {
+    "title": "Inscription aux services bancaires en ligne",
+    "description": "Saisissez le numero de compte figurant sur votre releve, puis choisissez un mot de passe.",
+    "buttonText": "Continuer",
+    "emailPlaceholder": "Adresse courriel",
+    "passwordPlaceholder": "Mot de passe",
+    "passwordSecurityText": "Utilisez au moins 12 caracteres, avec une majuscule, une minuscule, un chiffre et un symbole.",
+    "footerText": "Deja inscrit? Ouvrez une session.",
+    "invalid-email-format": "Saisissez une adresse courriel valide.",
+    "user-exists-error": "Un profil de services bancaires en ligne existe deja pour ce compte.",
+    "custom-script-error-code": "Nous n'avons pas pu trouver ce numero de compte. Veuillez communiquer avec nous."
+  }
+}

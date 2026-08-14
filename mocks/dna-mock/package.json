@@ -1,0 +1,19 @@
+{
+  "name": "obp-dna-mock",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Stand-in for the Private APIM identity facade (VeriPark -> Fiserv DNA) plus the UC-03 email-collection form.",
+  "type": "commonjs",
+  "engines": {
+    "node": ">=18"
+  },
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node --watch server.js",
+    "tunnel": "cloudflared tunnel --url http://localhost:4010"
+  },
+  "dependencies": {
+    "express": "^4.19.2",
+    "jsonwebtoken": "^9.0.2"
+  }
+}

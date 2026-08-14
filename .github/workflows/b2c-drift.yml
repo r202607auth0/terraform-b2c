@@ -1,0 +1,62 @@
+name: auth0-b2c-drift
+
+on:
+  schedule:
+    - cron: '0 11 * * 1-5'   # 06:00 America/Toronto, weekdays
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write
+  issues: write
+
+jobs:
+  drift:
+    name: drift (${{ matrix.env }} / ${{ matrix.stack }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        env: [dev, qa, staging, prod]
+        stack: [b2c, tenant]
+    environment: ${{ matrix.env }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_TF_ROLE_ARN }}
+          aws-region: ca-central-1
+
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: '1.9.8'
+
+      - id: plan
+        continue-on-error: true
+        env:
+          AUTH0_DOMAIN:                 ${{ secrets.AUTH0_DOMAIN }}
+          AUTH0_CLIENT_ID:              ${{ secrets.AUTH0_CLIENT_ID }}
+          AUTH0_CLIENT_SECRET:          ${{ secrets.AUTH0_CLIENT_SECRET }}
+          TF_VAR_apim_api_key:          ${{ secrets.APIM_API_KEY }}
+          TF_VAR_action_signing_secret: ${{ secrets.ACTION_SIGNING_SECRET }}
+        run: make drift ENV=${{ matrix.env }} STACK=${{ matrix.stack }}
+
+      - name: open an issue when the tenant has drifted
+        if: steps.plan.outcome == 'failure'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const title = `Drift detected: ${{ matrix.env }} / ${{ matrix.stack }}`;
+            const existing = await github.rest.issues.listForRepo({
+              owner: context.repo.owner, repo: context.repo.repo,
+              state: 'open', labels: 'drift'
+            });
+            if (!existing.data.some(i => i.title === title)) {
+              await github.rest.issues.create({
+                owner: context.repo.owner, repo: context.repo.repo,
+                title,
+                labels: ['drift'],
+                body: 'Terraform plan is non-empty. Someone changed Auth0 outside the pipeline; reconcile before the next release.'
+              });
+            }

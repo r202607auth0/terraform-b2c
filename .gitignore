@@ -1,0 +1,10 @@
+.terraform/
+.terraform.lock.hcl
+*.tfstate
+*.tfstate.*
+tfplan*
+crash.log
+*.auto.tfvars
+.env
+node_modules/
+newman-results.xml

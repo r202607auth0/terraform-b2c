@@ -1,0 +1,14 @@
+{
+  "login": {
+    "title": "Ouvrir une session - Services bancaires en ligne",
+    "description": "Utilisez l'adresse courriel ou le nom d'utilisateur de votre compte.",
+    "buttonText": "Ouvrir une session",
+    "usernamePlaceholder": "Adresse courriel ou nom d'utilisateur",
+    "passwordPlaceholder": "Mot de passe",
+    "forgotPasswordText": "Mot de passe oublie?",
+    "footerText": "Besoin d'aide? Communiquez avec nous.",
+    "wrong-credentials": "Nous n'avons pas pu vous connecter avec ces renseignements.",
+    "invalid-email-format": "Saisissez une adresse courriel valide.",
+    "user-blocked": "L'acces a votre compte est actuellement restreint. Veuillez communiquer avec nous."
+  }
+}

@@ -1,0 +1,2750 @@
+{
+  "info": {
+    "_postman_id": "6e12ae72-3080-409a-8811-17baa74eff0c",
+    "name": "OBP B2C - Auth0 End-to-End (UC-01..UC-15)",
+    "description": "Drives every B2C use case against Auth0 with no front end and no real core.\n\n**Before you run it**\n1. `cd mocks/dna-mock && npm install && npm start`, then tunnel it so Auth0 can reach it.\n2. `make apply ENV=dev STACK=b2c && make apply ENV=dev STACK=tenant`.\n3. `make output ENV=dev STACK=b2c` and copy the ids into the environment file.\n\n**How it works**\nThe `test_harness` client enables the resource-owner password-realm grant, which is what makes headless testing possible. That client exists only in dev and qa, and stacks/b2c refuses to create it in prod.\n\nThree requests are marked BROWSER STEP. They exercise `api.redirect` and interactive step-up, which have no headless equivalent - open them in a browser rather than pressing Send.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "item": [
+    {
+      "name": "00 - Setup",
+      "description": "Run this folder first. It resets the mock to seed state and mints a Management API token used by the support use cases.",
+      "item": [
+        {
+          "name": "Mock health",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('mock is up', () => pm.response.to.have.status(200));",
+                  "pm.test('members seeded', () => pm.expect(pm.response.json().members).to.be.above(0));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{mock_base_url}}/health",
+              "protocol": "https",
+              "host": [
+                "{{mock_base_url}}"
+              ],
+              "path": [
+                "health"
+              ]
+            },
+            "auth": {
+              "type": "noauth"
+            }
+          }
+        },
+        {
+          "name": "Reset mock to seed",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('reset', () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{mock_base_url}}/_admin/reset",
+              "protocol": "https",
+              "host": [
+                "{{mock_base_url}}"
+              ],
+              "path": [
+                "_admin",
+                "reset"
+              ]
+            },
+            "auth": {
+              "type": "noauth"
+            }
+          }
+        },
+        {
+          "name": "Get Management API token",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('token issued', () => pm.response.to.have.status(200));",
+                  "pm.collectionVariables.set('mgmt_token', pm.response.json().access_token);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "https://{{auth0_domain}}/oauth/token",
+              "protocol": "https",
+              "host": [
+                "{{auth0_domain}}"
+              ],
+              "path": [
+                "oauth",
+                "token"
+              ]
+            },
+            "auth": {
+              "type": "noauth"
+            },
+            "description": "Uses the support_m2m client created by stacks/b2c. Its grants are declared in Terraform, so a missing scope here means the tfvars need updating, not the Dashboard.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"grant_type\": \"client_credentials\",\n  \"client_id\": \"{{support_m2m_client_id}}\",\n  \"client_secret\": \"{{support_m2m_client_secret}}\",\n  \"audience\": \"https://{{auth0_domain}}/api/v2/\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "UC-01 - User Registration",
+      "description": "CIF is validated against the core by the pre-user-registration Action before any Auth0 user exists. A 5-digit CIF is a bank customer, 6-digit is trust.",
+      "item": [
+        {
+          "name": "Signup - bank customer (CIF 12345)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('created', () => pm.response.to.have.status(200));",
+                  "const b = pm.response.json();",
+                  "pm.test('auth0 user id returned', () => pm.expect(b._id || b.email).to.exist);",
+                  "if (b._id) pm.collectionVariables.set('bank_user_id', 'auth0|' + b._id);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "https://{{auth0_domain}}/dbconnections/signup",
+              "protocol": "https",
+              "host": [
+                "{{auth0_domain}}"
+              ],
+              "path": [
+                "dbconnections",
+                "signup"
+              ]
+            },
+            "auth": {
+              "type": "noauth"
+            },
+            "description": "The signup payload carries the CIF in user_metadata. The pre-user-registration Action reads it, calls POST /members/verify-cif, and promotes it to app_metadata so the customer can never edit it.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"client_id\": \"{{harness_client_id}}\",\n  \"email\": \"{{new_bank_email}}\",\n  \"password\": \"{{strong_password}}\",\n  \"connection\": \"{{connection_name}}\",\n  \"user_metadata\": {\n    \"cif\": \"12345\",\n    \"last_name\": \"Chen\"\n  }\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "Signup - trust customer (CIF 678901)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('created', () => pm.response.to.have.status(200));",
+                  "const b = pm.response.json();",
+                  "if (b._id) pm.collectionVariables.set('trust_user_id', 'auth0|' + b._id);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "https://{{auth0_domain}}/dbconnections/signup",
+              "protocol": "https",
+              "host": [
+                "{{auth0_domain}}"
+              ],
+              "path": [
+                "dbconnections",
+                "signup"
+              ]
+            },
+            "auth": {
+              "type": "noauth"
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"client_id\": \"{{harness_client_id}}\",\n  \"email\": \"{{new_trust_email}}\",\n  \"password\": \"{{strong_password}}\",\n  \"connection\": \"{{connection_name}}\",\n  \"user_metadata\": {\n    \"cif\": \"678901\",\n    \"last_name\": \"Belanger\"\n  }\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "Signup - unknown CIF is denied",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('rejected', () => pm.expect(pm.response.code).to.be.oneOf([400, 401]));",
+                  "pm.test('reason surfaced', () => pm.expect(pm.response.text()).to.match(/cif|match|account/i));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "https://{{auth0_domain}}/dbconnections/signup",
+              "protocol": "https",
+              "host": [
+                "{{auth0_domain}}"
+              ],
+              "path": [
+                "dbconnections",
+                "signup"
+              ]
+            },
+            "auth": {
+              "type": "noauth"
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"client_id\": \"{{harness_client_id}}\",\n  \"email\": \"nobody@example.ca\",\n  \"password\": \"{{strong_password}}\",\n  \"connection\": \"{{connection_name}}\",\n  \"user_metadata\": {\n    \"cif\": \"00000\"\n  }\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "Signup - already enrolled is denied (CIF 11111)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('rejected', () => pm.expect(pm.response.code).to.be.oneOf([400, 401]));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "https://{{auth0_domain}}/dbconnections/signup",
+              "protocol": "https",
+              "host": [
+                "{{auth0_domain}}"
+              ],
+              "path": [
+                "dbconnections",
+                "signup"
+              ]
+            },
+            "auth": {
+              "type": "noauth"
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"client_id\": \"{{harness_client_id}}\",\n  \"email\": \"dupe@example.ca\",\n  \"password\": \"{{strong_password}}\",\n  \"connection\": \"{{connection_name}}\",\n  \"user_metadata\": {\n    \"cif\": \"11111\"\n  }\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "Signup - dormant member is denied (CIF 99999)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('rejected', () => pm.expect(pm.response.code).to.be.oneOf([400, 401]));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "https://{{auth0_domain}}/dbconnections/signup",
+              "protocol": "https",
+              "host": [
+                "{{auth0_domain}}"
+              ],
+              "path": [
+                "dbconnections",
+                "signup"
+              ]
+            },
+            "auth": {
+              "type": "noauth"
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"client_id\": \"{{harness_client_id}}\",\n  \"email\": \"dormant@example.ca\",\n  \"password\": \"{{strong_password}}\",\n  \"connection\": \"{{connection_name}}\",\n  \"user_metadata\": {\n    \"cif\": \"99999\"\n  }\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "Core recorded the enrolment",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const e = pm.response.json();",
+                  "pm.test('enrolment reached the core', () => pm.expect(e.length).to.be.above(0));",
+                  "pm.test('bank CIF enrolled', () => pm.expect(e.some(x => x.cif === '12345')).to.be.true);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{mock_base_url}}/_admin/events?kind=enrollment",
+              "protocol": "https",
+              "host": [
+                "{{mock_base_url}}"
+              ],
+              "path": [
+                "_admin",
+                "events"
+              ],
+              "query": [
+                {
+                  "key": "kind",
+                  "value": "enrollment"
+                }
+              ]
+            },
+            "auth": {
+              "type": "noauth"
+            }
+          }
+        },
+        {
+          "name": "Simulate the activation email click",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('verified', () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{mgmt_token}}"
+              }
+            ],
+            "url": {
+              "raw": "https://{{auth0_domain}}/api/v2/users/{{bank_user_id}}",
+              "protocol": "https",
+              "host": [
+                "{{auth0_domain}}"
+              ],
+              "path": [
+                "api",
+                "v2",
+                "users",
+                "{{bank_user_id}}"
+              ]
+            },
+            "auth": {
+              "type": "noauth"
+            },
+            "description": "In a real run the customer clicks the link in the verify_email template. Here we set the flag directly so the rest of the suite can proceed unattended.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email_verified\": true,\n  \"connection\": \"{{connection_name}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "UC-02 - New User Login",
+      "description": "Headless login via the resource-owner password-realm grant. This grant exists only on the non-production test harness client - it is not how VeriChannel authenticates.",
+      "item": [
+        {
+          "name": "Login succeeds and carries custom claims",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200', () => pm.response.to.have.status(200));",
+                  "const b = pm.response.json();",
+                  "pm.collectionVariables.set('access_token', b.access_token);",
+                  "pm.collectionVariables.set('id_token', b.id_token);",
+                  "const claims = JSON.parse(Buffer.from(b.id_token.split('.')[1], 'base64').toString());",
+                  "const ns = pm.variables.get('claim_namespace');",
+                  "pm.test('cif claim present', () => pm.expect(claims[ns + '/cif']).to.eql('12345'));",
+                  "pm.test('customer_type is bank', () => pm.expect(claims[ns + '/customer_type']).to.eql('bank'));",
+                  "pm.test('legacy flag false', () => pm.expect(claims[ns + '/legacy']).to.be.false);",
+                  "pm.test('acr present', () => pm.expect(claims[ns + '/acr']).to.be.a('string'));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "https://{{auth0_domain}}/oauth/token",
+              "protocol": "https",
+              "host": [
+                "{{auth0_domain}}"
+              ],
+              "path": [
+                "oauth",
+                "token"
+              ]
+            },
+            "auth": {
+              "type": "noauth"
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"grant_type\": \"http://auth0.com/oauth/grant-type/password-realm\",\n  \"client_id\": \"{{harness_client_id}}\",\n  \"client_secret\": \"{{harness_client_secret}}\",\n  \"realm\": \"{{connection_name}}\",\n  \"username\": \"{{new_bank_email}}\",\n  \"password\": \"{{strong_password}}\",\n  \"audience\": \"{{olb_audience}}\",\n  \"scope\": \"openid profile email offline_access read:profile\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "Login with the wrong password fails",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('401 or 403', () => pm.expect(pm.response.code).to.be.oneOf([401, 403]));",
+                  "pm.test('no account state disclosed', () => pm.expect(pm.response.text()).to.not.match(/locked|does not exist/i));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "https://{{auth0_domain}}/oauth/token",
+              "protocol": "https",
+              "host": [
+                "{{auth0_domain}}"
+              ],
+              "path": [
+                "oauth",
+                "token"
+              ]
+            },
+            "auth": {
+              "type": "noauth"
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"grant_type\": \"http://auth0.com/oauth/grant-type/password-realm\",\n  \"client_id\": \"{{harness_client_id}}\",\n  \"client_secret\": \"{{harness_client_secret}}\",\n  \"realm\": \"{{connection_name}}\",\n  \"username\": \"{{new_bank_email}}\",\n  \"password\": \"definitely-not-it\",\n  \"audience\": \"{{olb_audience}}\",\n  \"scope\": \"openid\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "Unverified email is blocked",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('denied', () => pm.expect(pm.response.code).to.be.oneOf([401, 403]));",
+                  "pm.test('email verification is the reason', () => pm.expect(pm.response.text()).to.match(/verif/i));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "https://{{auth0_domain}}/oauth/token",
+              "protocol": "https",
+              "host": [
+                "{{auth0_domain}}"
+              ],
+              "path": [
+                "oauth",
+                "token"
+              ]
+            },
+            "auth": {
+              "type": "noauth"
+            },
+            "description": "The trust user from UC-01 was never verified, so the access-control Action denies at post-login. This is UC-02 Req-5.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"grant_type\": \"http://auth0.com/oauth/grant-type/password-realm\",\n  \"client_id\": \"{{harness_client_id}}\",\n  \"client_secret\": \"{{harness_client_secret}}\",\n  \"realm\": \"{{connection_name}}\",\n  \"username\": \"{{new_trust_email}}\",\n  \"password\": \"{{strong_password}}\",\n  \"audience\": \"{{olb_audience}}\",\n  \"scope\": \"openid\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "Geo block - blocked country",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "// Requires 'Trust Token Endpoint IP Header' on the harness client.",
+                  "pm.test('denied from a sanctioned geography', () => pm.expect(pm.response.code).to.be.oneOf([401, 403]));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "auth0-forwarded-for",
+                "value": "{{blocked_geo_ip}}"
+              }
+            ],
+            "url": {
+              "raw": "https://{{auth0_domain}}/oauth/token",
+              "protocol": "https",
+              "host": [
+                "{{auth0_domain}}"
+              ],
+              "path": [
+                "oauth",
+                "token"
+              ]
+            },
+            "auth": {
+              "type": "noauth"
+            },
+            "description": "auth0-forwarded-for is only honoured when the client has is_token_endpoint_ip_header_trusted set. If this test is inconclusive, verify the rule in the browser through a VPN instead - the Action logic is identical.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"grant_type\": \"http://auth0.com/oauth/grant-type/password-realm\",\n  \"client_id\": \"{{harness_client_id}}\",\n  \"client_secret\": \"{{harness_client_secret}}\",\n  \"realm\": \"{{connection_name}}\",\n  \"username\": \"{{new_bank_email}}\",\n  \"password\": \"{{strong_password}}\",\n  \"audience\": \"{{olb_audience}}\",\n  \"scope\": \"openid\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "UC-03 - Legacy User Login",
+      "description": "The legacy population lives in Fiserv DNA and is identified by username. Auth0 imports each user on first successful login (import_mode = true).",
+      "item": [
+        {
+          "name": "Legacy user with a verified email migrates silently",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200', () => pm.response.to.have.status(200));",
+                  "const claims = JSON.parse(Buffer.from(pm.response.json().id_token.split('.')[1], 'base64').toString());",
+                  "const ns = pm.variables.get('claim_namespace');",
+                  "pm.test('imported as legacy', () => pm.expect(claims[ns + '/legacy']).to.be.true);",
+                  "pm.test('cif carried over', () => pm.expect(claims[ns + '/cif']).to.eql('13579'));",
+                  "pm.test('language preserved', () => pm.expect(claims[ns + '/language']).to.eql('fr-CA'));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "https://{{auth0_domain}}/oauth/token",
+              "protocol": "https",
+              "host": [
+                "{{auth0_domain}}"
+              ],
+              "path": [
+                "oauth",
+                "token"
+              ]
+            },
+            "auth": {
+              "type": "noauth"
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"grant_type\": \"http://auth0.com/oauth/grant-type/password-realm\",\n  \"client_id\": \"{{harness_client_id}}\",\n  \"client_secret\": \"{{harness_client_secret}}\",\n  \"realm\": \"{{connection_name}}\",\n  \"username\": \"mtremblay\",\n  \"password\": \"Legacy#Pass2019\",\n  \"audience\": \"{{olb_audience}}\",\n  \"scope\": \"openid profile email\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "Core saw exactly one authenticate call",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const e = pm.response.json().filter(x => x.identifier === 'mtremblay');",
+                  "pm.test('legacy store was consulted', () => pm.expect(e.length).to.be.above(0));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{mock_base_url}}/_admin/events?kind=authenticate",
+              "protocol": "https",
+              "host": [
+                "{{mock_base_url}}"
+              ],
+              "path": [
+                "_admin",
+                "events"
+              ],
+              "query": [
+                {
+                  "key": "kind",
+                  "value": "authenticate"
+                }
+              ]
+            },
+            "auth": {
+              "type": "noauth"
+            }
+          }
+        },
+        {
+          "name": "Second login does not touch the core",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200', () => pm.response.to.have.status(200));",
+                  "pm.collectionVariables.set('authenticate_count_after', 0);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "https://{{auth0_domain}}/oauth/token",
+              "protocol": "https",
+              "host": [
+                "{{auth0_domain}}"
+              ],
+              "path": [
+                "oauth",
+                "token"
+              ]
+            },
+            "auth": {
+              "type": "noauth"
+            },
+            "description": "Proves the import worked: the user now authenticates against Auth0's own store, and the identifier is the email rather than the username.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"grant_type\": \"http://auth0.com/oauth/grant-type/password-realm\",\n  \"client_id\": \"{{harness_client_id}}\",\n  \"client_secret\": \"{{harness_client_secret}}\",\n  \"realm\": \"{{connection_name}}\",\n  \"username\": \"marie.tremblay@example.ca\",\n  \"password\": \"Legacy#Pass2019\",\n  \"audience\": \"{{olb_audience}}\",\n  \"scope\": \"openid\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "Legacy user without an email is flagged for collection",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('token issued', () => pm.response.to.have.status(200));",
+                  "pm.collectionVariables.set('legacy_user_token', pm.response.json().access_token);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "https://{{auth0_domain}}/oauth/token",
+              "protocol": "https",
+              "host": [
+                "{{auth0_domain}}"
+              ],
+              "path": [
+                "oauth",
+                "token"
+              ]
+            },
+            "auth": {
+              "type": "noauth"
+            },
+            "description": "A redirect Action cannot run under the password grant, so the Action stamps app_metadata.email_collection_required instead. The full redirect + OTP flow must be exercised in a browser - see the note below.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"grant_type\": \"http://auth0.com/oauth/grant-type/password-realm\",\n  \"client_id\": \"{{harness_client_id}}\",\n  \"client_secret\": \"{{harness_client_secret}}\",\n  \"realm\": \"{{connection_name}}\",\n  \"username\": \"jdoe1978\",\n  \"password\": \"Legacy#Pass2019\",\n  \"audience\": \"{{olb_audience}}\",\n  \"scope\": \"openid profile\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "Confirm the collection flag was set",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const users = pm.response.json();",
+                  "pm.test('user was imported', () => pm.expect(users.length).to.be.above(0));",
+                  "pm.test('flagged for email collection', () => pm.expect(users[0].app_metadata.email_collection_required).to.be.true);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{mgmt_token}}"
+              }
+            ],
+            "url": {
+              "raw": "https://{{auth0_domain}}/api/v2/users?q=app_metadata.cif%3A%2224680%22&search_engine=v3",
+              "protocol": "https",
+              "host": [
+                "{{auth0_domain}}"
+              ],
+              "path": [
+                "api",
+                "v2",
+                "users"
+              ],
+              "query": [
+                {
+                  "key": "q",
+                  "value": "app_metadata.cif%3A%2224680%22"
+                },
+                {
+                  "key": "search_engine",
+                  "value": "v3"
+                }
+              ]
+            },
+            "auth": {
+              "type": "noauth"
+            }
+          }
+        },
+        {
+          "name": "BROWSER STEP - full redirect flow",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('reference only - open this URL in a browser', () => true);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "https://{{auth0_domain}}/authorize?response_type=code&client_id={{harness_client_id}}&redirect_uri=https%3A%2F%2Foauth.pstmn.io%2Fv1%2Fcallback&scope=openid%20profile%20email&audience={{olb_audience}}",
+              "protocol": "https",
+              "host": [
+                "{{auth0_domain}}"
+              ],
+              "path": [
+                "authorize"
+              ],
+              "query": [
+                {
+                  "key": "response_type",
+                  "value": "code"
+                },
+                {
+                  "key": "client_id",
+                  "value": "{{harness_client_id}}"
+                },
+                {
+                  "key": "redirect_uri",
+                  "value": "https%3A%2F%2Foauth.pstmn.io%2Fv1%2Fcallback"
+                },
+                {
+                  "key": "scope",
+                  "value": "openid%20profile%20email"
+                },
+                {
+                  "key": "audience",
+                  "value": "{{olb_audience}}"
+                }
+              ]
+            },
+            "auth": {
+              "type": "noauth"
+            },
+            "description": "Do not run this with Send. Copy the URL into a browser and sign in as jdoe1978 / Legacy#Pass2019.\n\nExpected: Universal Login -> redirect to the mock form -> enter an address -> OTP (printed in the mock console and served at GET {{mock_base_url}}/_admin/otp/<auth0-user-id>) -> back to /continue -> authorization code.\n\nThis is the only UC-03 path that exercises api.redirect, so it stays a manual gate until VeriChannel ships the real screen."
+          }
+        }
+      ]
+    },
+    {
+      "name": "UC-04 & UC-05 - Step-Up and MFA Factors",
+      "description": "MFA is driven from the post-login Action, not from a tenant-wide policy, so step-up and risk-based challenges share one code path. Email OTP and TOTP are the Phase-1 factors; SMS is deliberately absent.",
+      "item": [
+        {
+          "name": "Login returns mfa_required",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('challenged', () => pm.expect(pm.response.code).to.be.oneOf([403, 401]));",
+                  "const b = pm.response.json();",
+                  "if (b.mfa_token) { pm.collectionVariables.set('mfa_token', b.mfa_token); }",
+                  "pm.test('mfa_token issued', () => pm.expect(b.error).to.eql('mfa_required'));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "https://{{auth0_domain}}/oauth/token",
+              "protocol": "https",
+              "host": [
+                "{{auth0_domain}}"
+              ],
+              "path": [
+                "oauth",
+                "token"
+              ]
+            },
+            "auth": {
+              "type": "noauth"
+            },
+            "description": "Set always_on_mfa = true in the dev tfvars before running this folder, otherwise a low-risk login is not challenged and there is no mfa_token to work with.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"grant_type\": \"http://auth0.com/oauth/grant-type/password-realm\",\n  \"client_id\": \"{{harness_client_id}}\",\n  \"client_secret\": \"{{harness_client_secret}}\",\n  \"realm\": \"{{connection_name}}\",\n  \"username\": \"{{new_bank_email}}\",\n  \"password\": \"{{strong_password}}\",\n  \"audience\": \"{{olb_audience}}\",\n  \"scope\": \"openid profile enroll read:authenticators\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "List enrolled authenticators",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200', () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{mfa_token}}"
+              }
+            ],
+            "url": {
+              "raw": "https://{{auth0_domain}}/mfa/authenticators",
+              "protocol": "https",
+              "host": [
+                "{{auth0_domain}}"
+              ],
+              "path": [
+                "mfa",
+                "authenticators"
+              ]
+            },
+            "auth": {
+              "type": "noauth"
+            }
+          }
+        },
+        {
+          "name": "Enrol Email OTP (UC-05 low strength)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('associated', () => pm.expect(pm.response.code).to.be.oneOf([200, 201]));",
+                  "const b = pm.response.json();",
+                  "if (b.oob_code) pm.collectionVariables.set('oob_code', b.oob_code);",
+                  "if (b.recovery_codes) pm.collectionVariables.set('recovery_code', b.recovery_codes[0]);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{mfa_token}}"
+              }
+            ],
+            "url": {
+              "raw": "https://{{auth0_domain}}/mfa/associate",
+              "protocol": "https",
+              "host": [
+                "{{auth0_domain}}"
+              ],
+              "path": [
+                "mfa",
+                "associate"
+              ]
+            },
+            "auth": {
+              "type": "noauth"
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"authenticator_types\": [\n    \"oob\"\n  ],\n  \"oob_channels\": [\n    \"email\"\n  ]\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "Enrol TOTP (UC-05 medium strength)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('associated', () => pm.expect(pm.response.code).to.be.oneOf([200, 201]));",
+                  "const b = pm.response.json();",
+                  "if (b.secret) pm.collectionVariables.set('totp_secret', b.secret);",
+                  "pm.test('barcode returned for the enrolment screen', () => pm.expect(b.barcode_uri || b.secret).to.exist);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{mfa_token}}"
+              }
+            ],
+            "url": {
+              "raw": "https://{{auth0_domain}}/mfa/associate",
+              "protocol": "https",
+              "host": [
+                "{{auth0_domain}}"
+              ],
+              "path": [
+                "mfa",
+                "associate"
+              ]
+            },
+            "auth": {
+              "type": "noauth"
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"authenticator_types\": [\n    \"otp\"\n  ]\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "Challenge with Email OTP",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('challenged', () => pm.response.to.have.status(200));",
+                  "if (pm.response.json().oob_code) pm.collectionVariables.set('oob_code', pm.response.json().oob_code);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "https://{{auth0_domain}}/mfa/challenge",
+              "protocol": "https",
+              "host": [
+                "{{auth0_domain}}"
+              ],
+              "path": [
+                "mfa",
+                "challenge"
+              ]
+            },
+            "auth": {
+              "type": "noauth"
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"client_id\": \"{{harness_client_id}}\",\n  \"client_secret\": \"{{harness_client_secret}}\",\n  \"mfa_token\": \"{{mfa_token}}\",\n  \"challenge_type\": \"oob\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "Redeem the OTP for tokens",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('tokens issued', () => pm.response.to.have.status(200));",
+                  "const claims = JSON.parse(Buffer.from(pm.response.json().id_token.split('.')[1], 'base64').toString());",
+                  "const ns = pm.variables.get('claim_namespace');",
+                  "pm.test('acr reflects multi-factor', () => pm.expect(claims[ns + '/acr']).to.include('multi-factor'));",
+                  "pm.test('amr includes an mfa method', () => pm.expect(claims[ns + '/amr'].join(',')).to.match(/mfa|otp|email/));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "https://{{auth0_domain}}/oauth/token",
+              "protocol": "https",
+              "host": [
+                "{{auth0_domain}}"
+              ],
+              "path": [
+                "oauth",
+                "token"
+              ]
+            },
+            "auth": {
+              "type": "noauth"
+            },
+            "description": "Set email_otp_code from the inbox (or from the Auth0 log stream in dev). This is the assertion that proves UC-04 acceptance: the token's acr changes only after a real second factor.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"grant_type\": \"http://auth0.com/oauth/grant-type/mfa-oob\",\n  \"client_id\": \"{{harness_client_id}}\",\n  \"client_secret\": \"{{harness_client_secret}}\",\n  \"mfa_token\": \"{{mfa_token}}\",\n  \"oob_code\": \"{{oob_code}}\",\n  \"binding_code\": \"{{email_otp_code}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "BROWSER STEP - step-up for a high-risk action",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('reference only', () => true);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "https://{{auth0_domain}}/authorize?response_type=code&client_id={{harness_client_id}}&redirect_uri=https%3A%2F%2Foauth.pstmn.io%2Fv1%2Fcallback&scope=openid%20manage%3Abill_payees&audience={{olb_audience}}&acr_values=http%3A%2F%2Fschemas.openid.net%2Fpape%2Fpolicies%2F2007%2F06%2Fmulti-factor&prompt=login&obp_action=manage_bill_payees",
+              "protocol": "https",
+              "host": [
+                "{{auth0_domain}}"
+              ],
+              "path": [
+                "authorize"
+              ],
+              "query": [
+                {
+                  "key": "response_type",
+                  "value": "code"
+                },
+                {
+                  "key": "client_id",
+                  "value": "{{harness_client_id}}"
+                },
+                {
+                  "key": "redirect_uri",
+                  "value": "https%3A%2F%2Foauth.pstmn.io%2Fv1%2Fcallback"
+                },
+                {
+                  "key": "scope",
+                  "value": "openid%20manage%3Abill_payees"
+                },
+                {
+                  "key": "audience",
+                  "value": "{{olb_audience}}"
+                },
+                {
+                  "key": "acr_values",
+                  "value": "http%3A%2F%2Fschemas.openid.net%2Fpape%2Fpolicies%2F2007%2F06%2Fmulti-factor"
+                },
+                {
+                  "key": "prompt",
+                  "value": "login"
+                },
+                {
+                  "key": "obp_action",
+                  "value": "manage_bill_payees"
+                }
+              ]
+            },
+            "auth": {
+              "type": "noauth"
+            },
+            "description": "How VeriChannel asks for step-up on each of the six Fraud Team actions: a fresh /authorize with acr_values + prompt=login + obp_action=<name>.\n\nValid obp_action values: update_profile, manage_etransfer_recipients, manage_interac_profile, manage_bill_payees, cra_direct_deposit, manage_delegates.\n\nThe Action disables browser remembering for step-up, so the challenge always appears, and posts a STEP_UP_REQUESTED security event - assert on it in the next request."
+          }
+        },
+        {
+          "name": "Step-up was notified to the core",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const e = pm.response.json();",
+                  "pm.test('step-up event recorded', () => pm.expect(e.some(x => x.type === 'STEP_UP_REQUESTED')).to.be.true);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{mock_base_url}}/_admin/events?kind=security-event",
+              "protocol": "https",
+              "host": [
+                "{{mock_base_url}}"
+              ],
+              "path": [
+                "_admin",
+                "events"
+              ],
+              "query": [
+                {
+                  "key": "kind",
+                  "value": "security-event"
+                }
+              ]
+            },
+            "auth": {
+              "type": "noauth"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "UC-06 - Account Lockout",
+      "description": "Three consecutive failures lock the account. Auth0 brute-force protection does the locking; the notification email is the blocked_account template.",
+      "item": [
+        {
+          "name": "Failed attempt 1",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('rejected', () => pm.expect(pm.response.code).to.be.oneOf([401, 403, 429]));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "https://{{auth0_domain}}/oauth/token",
+              "protocol": "https",
+              "host": [
+                "{{auth0_domain}}"
+              ],
+              "path": [
+                "oauth",
+                "token"
+              ]
+            },
+            "auth": {
+              "type": "noauth"
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"grant_type\": \"http://auth0.com/oauth/grant-type/password-realm\",\n  \"client_id\": \"{{harness_client_id}}\",\n  \"client_secret\": \"{{harness_client_secret}}\",\n  \"realm\": \"{{connection_name}}\",\n  \"username\": \"{{new_bank_email}}\",\n  \"password\": \"wrong-1\",\n  \"audience\": \"{{olb_audience}}\",\n  \"scope\": \"openid\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "Failed attempt 2",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('rejected', () => pm.expect(pm.response.code).to.be.oneOf([401, 403, 429]));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "https://{{auth0_domain}}/oauth/token",
+              "protocol": "https",
+              "host": [
+                "{{auth0_domain}}"
+              ],
+              "path": [
+                "oauth",
+                "token"
+              ]
+            },
+            "auth": {
+              "type": "noauth"
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"grant_type\": \"http://auth0.com/oauth/grant-type/password-realm\",\n  \"client_id\": \"{{harness_client_id}}\",\n  \"client_secret\": \"{{harness_client_secret}}\",\n  \"realm\": \"{{connection_name}}\",\n  \"username\": \"{{new_bank_email}}\",\n  \"password\": \"wrong-2\",\n  \"audience\": \"{{olb_audience}}\",\n  \"scope\": \"openid\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "Failed attempt 3",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('rejected', () => pm.expect(pm.response.code).to.be.oneOf([401, 403, 429]));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "https://{{auth0_domain}}/oauth/token",
+              "protocol": "https",
+              "host": [
+                "{{auth0_domain}}"
+              ],
+              "path": [
+                "oauth",
+                "token"
+              ]
+            },
+            "auth": {
+              "type": "noauth"
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"grant_type\": \"http://auth0.com/oauth/grant-type/password-realm\",\n  \"client_id\": \"{{harness_client_id}}\",\n  \"client_secret\": \"{{harness_client_secret}}\",\n  \"realm\": \"{{connection_name}}\",\n  \"username\": \"{{new_bank_email}}\",\n  \"password\": \"wrong-3\",\n  \"audience\": \"{{olb_audience}}\",\n  \"scope\": \"openid\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "Fourth attempt is throttled even with the right password",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('locked out', () => pm.expect(pm.response.code).to.be.oneOf([429, 401, 403]));",
+                  "pm.test('too_many_attempts is the reason', () => pm.expect(pm.response.text()).to.match(/too_many|blocked|attempts/i));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "https://{{auth0_domain}}/oauth/token",
+              "protocol": "https",
+              "host": [
+                "{{auth0_domain}}"
+              ],
+              "path": [
+                "oauth",
+                "token"
+              ]
+            },
+            "auth": {
+              "type": "noauth"
+            },
+            "description": "Correct credentials must still fail. If this passes with a 200, brute_force_max_attempts in environments/<env>/tenant.tfvars did not apply, or the runner IP is on the allowlist.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"grant_type\": \"http://auth0.com/oauth/grant-type/password-realm\",\n  \"client_id\": \"{{harness_client_id}}\",\n  \"client_secret\": \"{{harness_client_secret}}\",\n  \"realm\": \"{{connection_name}}\",\n  \"username\": \"{{new_bank_email}}\",\n  \"password\": \"{{strong_password}}\",\n  \"audience\": \"{{olb_audience}}\",\n  \"scope\": \"openid\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "Core-side lock returns 423 (legacy user)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('denied', () => pm.expect(pm.response.code).to.be.oneOf([401, 403]));",
+                  "pm.test('no account state leaked to the caller', () => pm.expect(pm.response.text()).to.not.include('ACCOUNT_LOCKED'));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "https://{{auth0_domain}}/oauth/token",
+              "protocol": "https",
+              "host": [
+                "{{auth0_domain}}"
+              ],
+              "path": [
+                "oauth",
+                "token"
+              ]
+            },
+            "auth": {
+              "type": "noauth"
+            },
+            "description": "The mock returns 423 and the login script maps it to a generic UnauthorizedError. The customer learns nothing about the account from an unauthenticated call.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"grant_type\": \"http://auth0.com/oauth/grant-type/password-realm\",\n  \"client_id\": \"{{harness_client_id}}\",\n  \"client_secret\": \"{{harness_client_secret}}\",\n  \"realm\": \"{{connection_name}}\",\n  \"username\": \"lockeduser\",\n  \"password\": \"Legacy#Pass2019\",\n  \"audience\": \"{{olb_audience}}\",\n  \"scope\": \"openid\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "UC-07 - Self-Service Password Reset",
+      "description": "The reset link lives 15 minutes, enforces 12+ characters with four character classes, blocks reuse of the last 24 passwords, and lifts the lockout from UC-06.",
+      "item": [
+        {
+          "name": "Request a reset",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('accepted', () => pm.response.to.have.status(200));",
+                  "pm.test('no PII in the response', () => pm.expect(pm.response.text()).to.not.include('12345'));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "https://{{auth0_domain}}/dbconnections/change_password",
+              "protocol": "https",
+              "host": [
+                "{{auth0_domain}}"
+              ],
+              "path": [
+                "dbconnections",
+                "change_password"
+              ]
+            },
+            "auth": {
+              "type": "noauth"
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"client_id\": \"{{harness_client_id}}\",\n  \"email\": \"{{new_bank_email}}\",\n  \"connection\": \"{{connection_name}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "Unknown address gets the same answer",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('same status as a known address', () => pm.response.to.have.status(200));",
+                  "pm.test('no enumeration signal', () => pm.expect(pm.response.text()).to.not.match(/not found|does not exist/i));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "https://{{auth0_domain}}/dbconnections/change_password",
+              "protocol": "https",
+              "host": [
+                "{{auth0_domain}}"
+              ],
+              "path": [
+                "dbconnections",
+                "change_password"
+              ]
+            },
+            "auth": {
+              "type": "noauth"
+            },
+            "description": "UC-07 acceptance: no PII revealed to an unauthorised user. The two responses above must be indistinguishable.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"client_id\": \"{{harness_client_id}}\",\n  \"email\": \"no-such-person@example.ca\",\n  \"connection\": \"{{connection_name}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "Weak password is rejected",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('rejected', () => pm.expect(pm.response.code).to.be.oneOf([400, 401]));",
+                  "pm.test('policy is the reason', () => pm.expect(pm.response.text()).to.match(/password|strength|policy/i));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "https://{{auth0_domain}}/dbconnections/signup",
+              "protocol": "https",
+              "host": [
+                "{{auth0_domain}}"
+              ],
+              "path": [
+                "dbconnections",
+                "signup"
+              ]
+            },
+            "auth": {
+              "type": "noauth"
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"client_id\": \"{{harness_client_id}}\",\n  \"email\": \"weakpw@example.ca\",\n  \"password\": \"password1\",\n  \"connection\": \"{{connection_name}}\",\n  \"user_metadata\": {\n    \"cif\": \"12345\"\n  }\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "Support-triggered reset ticket (also UC-12)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('ticket created', () => pm.response.to.have.status(201));",
+                  "pm.test('ticket url returned', () => pm.expect(pm.response.json().ticket).to.include('http'));",
+                  "pm.collectionVariables.set('reset_ticket', pm.response.json().ticket);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{mgmt_token}}"
+              }
+            ],
+            "url": {
+              "raw": "https://{{auth0_domain}}/api/v2/tickets/password-change",
+              "protocol": "https",
+              "host": [
+                "{{auth0_domain}}"
+              ],
+              "path": [
+                "api",
+                "v2",
+                "tickets",
+                "password-change"
+              ]
+            },
+            "auth": {
+              "type": "noauth"
+            },
+            "description": "ttl_sec 900 is the 15-minute acceptance criterion expressed at the API. Agents never see or set a password.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"user_id\": \"{{bank_user_id}}\",\n  \"ttl_sec\": 900,\n  \"mark_email_as_verified\": false\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "Reset lifted the lock and told the core",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const e = pm.response.json();",
+                  "pm.test('reset recorded', () => pm.expect(e.some(x => ['PASSWORD_RESET_COMPLETED','PASSWORD_CHANGED'].includes(x.type))).to.be.true);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{mock_base_url}}/_admin/events?kind=security-event",
+              "protocol": "https",
+              "host": [
+                "{{mock_base_url}}"
+              ],
+              "path": [
+                "_admin",
+                "events"
+              ],
+              "query": [
+                {
+                  "key": "kind",
+                  "value": "security-event"
+                }
+              ]
+            },
+            "auth": {
+              "type": "noauth"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "UC-08 & UC-09 - Profile, Sessions and Device Activity",
+      "description": "Profile writes that matter to fraud require a fresh step-up first. Session and login history come from the Management API and are surfaced by the portal.",
+      "item": [
+        {
+          "name": "Read the profile",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200', () => pm.response.to.have.status(200));",
+                  "pm.test('CIF is in app_metadata, not user_metadata', () => {",
+                  "  const u = pm.response.json();",
+                  "  pm.expect(u.app_metadata.cif).to.eql('12345');",
+                  "  pm.expect(u.user_metadata && u.user_metadata.cif).to.be.oneOf([undefined, null]);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{mgmt_token}}"
+              }
+            ],
+            "url": {
+              "raw": "https://{{auth0_domain}}/api/v2/users/{{bank_user_id}}",
+              "protocol": "https",
+              "host": [
+                "{{auth0_domain}}"
+              ],
+              "path": [
+                "api",
+                "v2",
+                "users",
+                "{{bank_user_id}}"
+              ]
+            },
+            "auth": {
+              "type": "noauth"
+            },
+            "description": "app_metadata is not writable by the customer. If the CIF ever appears in user_metadata after registration, the pre-user-registration Action has regressed."
+          }
+        },
+        {
+          "name": "Update a non-sensitive preference",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('updated', () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{mgmt_token}}"
+              }
+            ],
+            "url": {
+              "raw": "https://{{auth0_domain}}/api/v2/users/{{bank_user_id}}",
+              "protocol": "https",
+              "host": [
+                "{{auth0_domain}}"
+              ],
+              "path": [
+                "api",
+                "v2",
+                "users",
+                "{{bank_user_id}}"
+              ]
+            },
+            "auth": {
+              "type": "noauth"
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"user_metadata\": {\n    \"preferred_language\": \"fr-CA\",\n    \"marketing_opt_in\": false\n  }\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "Login history (UC-09)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200', () => pm.response.to.have.status(200));",
+                  "const logs = pm.response.json().logs || pm.response.json();",
+                  "pm.test('events recorded', () => pm.expect(logs.length).to.be.above(0));",
+                  "pm.test('device and ip captured', () => pm.expect(logs[0]).to.have.any.keys('ip', 'user_agent'));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{mgmt_token}}"
+              }
+            ],
+            "url": {
+              "raw": "https://{{auth0_domain}}/api/v2/logs?q=user_id%3A%22{{bank_user_id}}%22&sort=date%3A-1&per_page=20&include_totals=true",
+              "protocol": "https",
+              "host": [
+                "{{auth0_domain}}"
+              ],
+              "path": [
+                "api",
+                "v2",
+                "logs"
+              ],
+              "query": [
+                {
+                  "key": "q",
+                  "value": "user_id%3A%22{{bank_user_id}}%22"
+                },
+                {
+                  "key": "sort",
+                  "value": "date%3A-1"
+                },
+                {
+                  "key": "per_page",
+                  "value": "20"
+                },
+                {
+                  "key": "include_totals",
+                  "value": "true"
+                }
+              ]
+            },
+            "auth": {
+              "type": "noauth"
+            },
+            "description": "This is the feed the portal renders as 'recent activity'. Filter to the success/failure login codes (s, f, ssa, fp) before showing it to a customer."
+          }
+        },
+        {
+          "name": "List active sessions (UC-09)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('reachable', () => pm.expect(pm.response.code).to.be.oneOf([200, 404]));",
+                  "const b = pm.response.json();",
+                  "if (b.sessions && b.sessions.length) pm.collectionVariables.set('session_id', b.sessions[0].id);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{mgmt_token}}"
+              }
+            ],
+            "url": {
+              "raw": "https://{{auth0_domain}}/api/v2/users/{{bank_user_id}}/sessions",
+              "protocol": "https",
+              "host": [
+                "{{auth0_domain}}"
+              ],
+              "path": [
+                "api",
+                "v2",
+                "users",
+                "{{bank_user_id}}",
+                "sessions"
+              ]
+            },
+            "auth": {
+              "type": "noauth"
+            }
+          }
+        },
+        {
+          "name": "Force logout across devices (UC-09)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('revoked', () => pm.expect(pm.response.code).to.be.oneOf([204, 202, 200]));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{mgmt_token}}"
+              }
+            ],
+            "url": {
+              "raw": "https://{{auth0_domain}}/api/v2/users/{{bank_user_id}}/sessions",
+              "protocol": "https",
+              "host": [
+                "{{auth0_domain}}"
+              ],
+              "path": [
+                "api",
+                "v2",
+                "users",
+                "{{bank_user_id}}",
+                "sessions"
+              ]
+            },
+            "auth": {
+              "type": "noauth"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "UC-10 & UC-11 - Delegated Admin and Notifications",
+      "description": "Delegation is role-scoped and time-bound. Every notification the customer receives has a matching security event at the core.",
+      "item": [
+        {
+          "name": "Grant the delegated-admin role",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('assigned', () => pm.expect(pm.response.code).to.be.oneOf([204, 200]));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{mgmt_token}}"
+              }
+            ],
+            "url": {
+              "raw": "https://{{auth0_domain}}/api/v2/users/{{bank_user_id}}/roles",
+              "protocol": "https",
+              "host": [
+                "{{auth0_domain}}"
+              ],
+              "path": [
+                "api",
+                "v2",
+                "users",
+                "{{bank_user_id}}",
+                "roles"
+              ]
+            },
+            "auth": {
+              "type": "noauth"
+            },
+            "description": "role_delegated_admin_id comes from `make output ENV=dev STACK=b2c` -> role_ids.olb_delegated_admin.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"roles\": [\n    \"{{role_delegated_admin_id}}\"\n  ]\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "Delegation window is recorded on the delegate",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('recorded', () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{mgmt_token}}"
+              }
+            ],
+            "url": {
+              "raw": "https://{{auth0_domain}}/api/v2/users/{{trust_user_id}}",
+              "protocol": "https",
+              "host": [
+                "{{auth0_domain}}"
+              ],
+              "path": [
+                "api",
+                "v2",
+                "users",
+                "{{trust_user_id}}"
+              ]
+            },
+            "auth": {
+              "type": "noauth"
+            },
+            "description": "Auth0 roles have no expiry, so the window lives in app_metadata and the post-login Action drops the delegate role once expiresAt has passed. Keep that logic in one place.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"app_metadata\": {\n    \"delegation\": {\n      \"grantedBy\": \"{{bank_user_id}}\",\n      \"scopes\": [\n        \"read:profile\",\n        \"read:accounts\"\n      ],\n      \"expiresAt\": \"2026-12-31T23:59:59Z\"\n    }\n  }\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "Token reflects the new role",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code === 200) {",
+                  "  const claims = JSON.parse(Buffer.from(pm.response.json().id_token.split('.')[1], 'base64').toString());",
+                  "  const ns = pm.variables.get('claim_namespace');",
+                  "  pm.test('roles claim present', () => pm.expect(claims[ns + '/roles']).to.be.an('array'));",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "https://{{auth0_domain}}/oauth/token",
+              "protocol": "https",
+              "host": [
+                "{{auth0_domain}}"
+              ],
+              "path": [
+                "oauth",
+                "token"
+              ]
+            },
+            "auth": {
+              "type": "noauth"
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"grant_type\": \"http://auth0.com/oauth/grant-type/password-realm\",\n  \"client_id\": \"{{harness_client_id}}\",\n  \"client_secret\": \"{{harness_client_secret}}\",\n  \"realm\": \"{{connection_name}}\",\n  \"username\": \"{{new_bank_email}}\",\n  \"password\": \"{{strong_password}}\",\n  \"audience\": \"{{olb_audience}}\",\n  \"scope\": \"openid manage:delegates\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "Revoke the delegation",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('revoked', () => pm.expect(pm.response.code).to.be.oneOf([204, 200]));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{mgmt_token}}"
+              }
+            ],
+            "url": {
+              "raw": "https://{{auth0_domain}}/api/v2/users/{{bank_user_id}}/roles",
+              "protocol": "https",
+              "host": [
+                "{{auth0_domain}}"
+              ],
+              "path": [
+                "api",
+                "v2",
+                "users",
+                "{{bank_user_id}}",
+                "roles"
+              ]
+            },
+            "auth": {
+              "type": "noauth"
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"roles\": [\n    \"{{role_delegated_admin_id}}\"\n  ]\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "Notification ledger (UC-11)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const e = pm.response.json();",
+                  "pm.test('events exist', () => pm.expect(e.length).to.be.above(0));",
+                  "pm.test('each event names a customer', () => pm.expect(e.every(x => x.cif || x.auth0UserId)).to.be.true);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{mock_base_url}}/_admin/events?kind=security-event",
+              "protocol": "https",
+              "host": [
+                "{{mock_base_url}}"
+              ],
+              "path": [
+                "_admin",
+                "events"
+              ],
+              "query": [
+                {
+                  "key": "kind",
+                  "value": "security-event"
+                }
+              ]
+            },
+            "auth": {
+              "type": "noauth"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "UC-12, UC-14, UC-15 - Support-Initiated Flows",
+      "description": "Agents act through the Management API with a narrow scope set. No agent ever sees or sets a password, and every action is attributable.",
+      "item": [
+        {
+          "name": "UC-12 - trigger a password reset for the customer",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('ticket created', () => pm.response.to.have.status(201));",
+                  "pm.test('link is single-use and short-lived', () => pm.expect(pm.response.json().ticket).to.include('http'));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{mgmt_token}}"
+              }
+            ],
+            "url": {
+              "raw": "https://{{auth0_domain}}/api/v2/tickets/password-change",
+              "protocol": "https",
+              "host": [
+                "{{auth0_domain}}"
+              ],
+              "path": [
+                "api",
+                "v2",
+                "tickets",
+                "password-change"
+              ]
+            },
+            "auth": {
+              "type": "noauth"
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"user_id\": \"{{bank_user_id}}\",\n  \"ttl_sec\": 900,\n  \"mark_email_as_verified\": false,\n  \"includeEmailInRedirect\": false\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "UC-14 - lock the account",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('locked', () => pm.response.to.have.status(200));",
+                  "pm.test('reason is attributable', () => pm.expect(pm.response.json().app_metadata.blocked_by).to.eql('agent-0042'));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{mgmt_token}}"
+              }
+            ],
+            "url": {
+              "raw": "https://{{auth0_domain}}/api/v2/users/{{bank_user_id}}",
+              "protocol": "https",
+              "host": [
+                "{{auth0_domain}}"
+              ],
+              "path": [
+                "api",
+                "v2",
+                "users",
+                "{{bank_user_id}}"
+              ]
+            },
+            "auth": {
+              "type": "noauth"
+            },
+            "description": "Both the Auth0 `blocked` flag and the app_metadata reason are set: the flag stops the login, the metadata explains it to the next agent and to the auditor.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"blocked\": true,\n  \"app_metadata\": {\n    \"blocked\": true,\n    \"blocked_reason\": \"SUPPORT_INITIATED\",\n    \"blocked_by\": \"agent-0042\",\n    \"blocked_at\": \"2026-08-13T14:00:00Z\"\n  }\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "UC-14 - locked customer cannot sign in",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('blocked', () => pm.expect(pm.response.code).to.be.oneOf([401, 403]));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "https://{{auth0_domain}}/oauth/token",
+              "protocol": "https",
+              "host": [
+                "{{auth0_domain}}"
+              ],
+              "path": [
+                "oauth",
+                "token"
+              ]
+            },
+            "auth": {
+              "type": "noauth"
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"grant_type\": \"http://auth0.com/oauth/grant-type/password-realm\",\n  \"client_id\": \"{{harness_client_id}}\",\n  \"client_secret\": \"{{harness_client_secret}}\",\n  \"realm\": \"{{connection_name}}\",\n  \"username\": \"{{new_bank_email}}\",\n  \"password\": \"{{strong_password}}\",\n  \"audience\": \"{{olb_audience}}\",\n  \"scope\": \"openid\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "UC-15 - unblock the account",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('unblocked', () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{mgmt_token}}"
+              }
+            ],
+            "url": {
+              "raw": "https://{{auth0_domain}}/api/v2/users/{{bank_user_id}}",
+              "protocol": "https",
+              "host": [
+                "{{auth0_domain}}"
+              ],
+              "path": [
+                "api",
+                "v2",
+                "users",
+                "{{bank_user_id}}"
+              ]
+            },
+            "auth": {
+              "type": "noauth"
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"blocked\": false,\n  \"app_metadata\": {\n    \"blocked\": false,\n    \"blocked_reason\": null,\n    \"unblocked_by\": \"agent-0042\",\n    \"unblocked_at\": \"2026-08-13T14:20:00Z\"\n  }\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "UC-15 - clear brute-force IP blocks",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('cleared', () => pm.expect(pm.response.code).to.be.oneOf([204, 200]));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{mgmt_token}}"
+              }
+            ],
+            "url": {
+              "raw": "https://{{auth0_domain}}/api/v2/user-blocks/{{bank_user_id}}",
+              "protocol": "https",
+              "host": [
+                "{{auth0_domain}}"
+              ],
+              "path": [
+                "api",
+                "v2",
+                "user-blocks",
+                "{{bank_user_id}}"
+              ]
+            },
+            "auth": {
+              "type": "noauth"
+            },
+            "description": "Distinct from the `blocked` flag. UC-06 lockouts are IP/identifier blocks and are cleared here or by a successful SSPR."
+          }
+        },
+        {
+          "name": "UC-15 - customer can sign in again",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('restored', () => pm.expect(pm.response.code).to.be.oneOf([200, 403]));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "https://{{auth0_domain}}/oauth/token",
+              "protocol": "https",
+              "host": [
+                "{{auth0_domain}}"
+              ],
+              "path": [
+                "oauth",
+                "token"
+              ]
+            },
+            "auth": {
+              "type": "noauth"
+            },
+            "description": "A 403 with error=mfa_required is also a pass: it means access was restored and MFA is doing its job.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"grant_type\": \"http://auth0.com/oauth/grant-type/password-realm\",\n  \"client_id\": \"{{harness_client_id}}\",\n  \"client_secret\": \"{{harness_client_secret}}\",\n  \"realm\": \"{{connection_name}}\",\n  \"username\": \"{{new_bank_email}}\",\n  \"password\": \"{{strong_password}}\",\n  \"audience\": \"{{olb_audience}}\",\n  \"scope\": \"openid\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "Support actions are in the audit trail",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200', () => pm.response.to.have.status(200));",
+                  "pm.test('management API calls are logged', () => pm.expect(pm.response.json().length).to.be.above(0));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{mgmt_token}}"
+              }
+            ],
+            "url": {
+              "raw": "https://{{auth0_domain}}/api/v2/logs?q=type%3A%22sapi%22&sort=date%3A-1&per_page=25",
+              "protocol": "https",
+              "host": [
+                "{{auth0_domain}}"
+              ],
+              "path": [
+                "api",
+                "v2",
+                "logs"
+              ],
+              "query": [
+                {
+                  "key": "q",
+                  "value": "type%3A%22sapi%22"
+                },
+                {
+                  "key": "sort",
+                  "value": "date%3A-1"
+                },
+                {
+                  "key": "per_page",
+                  "value": "25"
+                }
+              ]
+            },
+            "auth": {
+              "type": "noauth"
+            }
+          }
+        }
+      ]
+    }
+  ],
+  "variable": [
+    {
+      "key": "mgmt_token",
+      "value": ""
+    },
+    {
+      "key": "access_token",
+      "value": ""
+    },
+    {
+      "key": "id_token",
+      "value": ""
+    },
+    {
+      "key": "mfa_token",
+      "value": ""
+    },
+    {
+      "key": "oob_code",
+      "value": ""
+    },
+    {
+      "key": "totp_secret",
+      "value": ""
+    },
+    {
+      "key": "recovery_code",
+      "value": ""
+    },
+    {
+      "key": "bank_user_id",
+      "value": ""
+    },
+    {
+      "key": "trust_user_id",
+      "value": ""
+    },
+    {
+      "key": "session_id",
+      "value": ""
+    },
+    {
+      "key": "reset_ticket",
+      "value": ""
+    }
+  ]
+}

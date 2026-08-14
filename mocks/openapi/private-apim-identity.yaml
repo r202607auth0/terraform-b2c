@@ -1,0 +1,269 @@
+openapi: 3.0.3
+info:
+  title: OBP Private APIM - Identity Facade
+  version: 1.0.0
+  description: |
+    The contract between Auth0 and the credit union core.
+
+    Auth0 never talks to Fiserv DNA directly. Every call below is served by
+    Azure Private APIM, which forwards to VeriPark VeriLink, which is the sole
+    caller of DNA. Hand this file to the VeriPark and Fiserv teams: if their
+    implementation satisfies it, no Auth0 code changes at cutover.
+
+    Callers:
+      * Auth0 custom database scripts  (login, get_user, create, verify,
+        change_password, delete)
+      * Auth0 Actions                  (pre-user-registration, post-login,
+        password-reset-post-challenge, post-change-password)
+
+    Non-functional expectations:
+      * p99 latency < 800 ms. Auth0 scripts time out at 5 s and a timeout is a
+        failed login for a real customer.
+      * mTLS or OAuth2 client credentials in production; x-api-key is a
+        development-only stand-in.
+      * Every request carries x-correlation-id; echo it back for tracing.
+
+servers:
+  - url: https://apim.example.ca/identity/v1
+    description: Production
+  - url: https://obp-dna-mock.trycloudflare.com/identity/v1
+    description: Local mock behind a tunnel
+
+security:
+  - ApiKeyAuth: []
+
+paths:
+  /members/verify-cif:
+    post:
+      summary: Validate an account number before registration (UC-01)
+      operationId: verifyCif
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [cif]
+              properties:
+                cif:
+                  type: string
+                  pattern: '^\d{5}$|^\d{6}$'
+                  description: 5 digits = bank customer, 6 digits = trust customer
+                lastName: { type: string }
+                dateOfBirth: { type: string, format: date }
+      responses:
+        '200':
+          description: Member found and eligible
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/MemberProfile' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409':
+          description: Member already has an online banking profile
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+
+  /credentials/authenticate:
+    post:
+      summary: Validate legacy credentials during trickle migration (UC-02, UC-03)
+      operationId: authenticate
+      description: |
+        Called only for identifiers Auth0 does not yet hold. On 200 the profile
+        and the submitted password are imported into Auth0 and this endpoint is
+        never called again for that identifier.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [identifier, password]
+              properties:
+                identifier:
+                  type: string
+                  description: Email address or legacy username
+                password: { type: string, format: password }
+      responses:
+        '200':
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/MemberProfile' }
+        '401':
+          description: Wrong credentials. Must be indistinguishable from unknown identifier.
+        '423':
+          description: Core-side lockout
+
+  /credentials/{identifier}:
+    get:
+      summary: Look up a legacy identifier (UC-01, UC-07)
+      operationId: getCredential
+      parameters:
+        - $ref: '#/components/parameters/Identifier'
+      responses:
+        '200':
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/MemberProfile' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /credentials/{identifier}/verify:
+    post:
+      summary: Mark the email address as verified in the core (UC-01)
+      operationId: verifyEmail
+      parameters:
+        - $ref: '#/components/parameters/Identifier'
+      responses:
+        '200': { description: Verified }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /credentials/{identifier}/password:
+    patch:
+      summary: Propagate a password change to the legacy store (UC-07)
+      operationId: changePassword
+      parameters:
+        - $ref: '#/components/parameters/Identifier'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [password]
+              properties:
+                password: { type: string, format: password }
+                source: { type: string, enum: [AUTH0_SSPR, SUPPORT_INITIATED] }
+      responses:
+        '204': { description: Updated }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /credentials/email-in-use:
+    get:
+      summary: Is this address already claimed? (UC-03)
+      operationId: emailInUse
+      parameters:
+        - in: query
+          name: email
+          required: true
+          schema: { type: string, format: email }
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  inUse: { type: boolean }
+                  cif: { type: string, nullable: true }
+
+  /enrollments:
+    post:
+      summary: Record that a member now has an online profile (UC-01)
+      operationId: createEnrollment
+      parameters:
+        - in: header
+          name: Idempotency-Key
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [cif]
+              properties:
+                cif: { type: string }
+                email: { type: string, format: email }
+                channel: { type: string, enum: [OLB] }
+                enrolledAt: { type: string, format: date-time }
+      responses:
+        '201': { description: Enrolled }
+        '409': { description: Already enrolled }
+
+  /enrollments/{id}:
+    delete:
+      summary: Withdraw the online banking enrolment
+      operationId: deleteEnrollment
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string }
+      responses:
+        '204': { description: Removed }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /notifications/security-event:
+    post:
+      summary: Emit a customer-facing security notification (UC-04, UC-06, UC-11)
+      operationId: securityEvent
+      description: Fire and forget. Auth0 treats any failure as non-blocking.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [type]
+              properties:
+                type:
+                  type: string
+                  enum:
+                    - STEP_UP_REQUESTED
+                    - PASSWORD_CHANGED
+                    - PASSWORD_RESET_COMPLETED
+                    - ACCOUNT_LOCKED
+                    - ACCOUNT_UNLOCKED
+                    - PROFILE_UPDATED
+                    - NEW_DEVICE_LOGIN
+                cif: { type: string }
+                auth0UserId: { type: string }
+                metadata: { type: object, additionalProperties: true }
+      responses:
+        '202': { description: Accepted }
+
+components:
+  securitySchemes:
+    ApiKeyAuth:
+      type: apiKey
+      in: header
+      name: x-api-key
+
+  parameters:
+    Identifier:
+      in: path
+      name: identifier
+      required: true
+      schema: { type: string }
+      description: URL-encoded email address or legacy username
+
+  responses:
+    NotFound:
+      description: Not found
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+
+  schemas:
+    MemberProfile:
+      type: object
+      required: [cif, customerType, status]
+      properties:
+        cif: { type: string }
+        customerType: { type: string, enum: [bank, trust] }
+        memberId: { type: string }
+        firstName: { type: string }
+        lastName: { type: string }
+        status: { type: string, enum: [active, dormant, closed] }
+        language: { type: string, enum: [en, fr-CA] }
+        email: { type: string, format: email, nullable: true }
+        emailOnFile: { type: boolean }
+        emailVerified: { type: boolean }
+        legacyUsername: { type: string, nullable: true }
+
+    Error:
+      type: object
+      properties:
+        code: { type: string }
+        message: { type: string }
