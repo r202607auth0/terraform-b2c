@@ -111,6 +111,6 @@ variable "enable_test_harness_client" {
     MUST be false in prod - the resource-owner password grant is not acceptable
     for a production banking channel.
   EOT
-  type    = bool
-  default = false
+  type        = bool
+  default     = false
 }

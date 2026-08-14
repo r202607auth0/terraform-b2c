@@ -16,8 +16,8 @@ variable "import_mode" {
     false = Auth0 is the sole credential store; the legacy Login script is never
             called. Flip this only after the legacy population has drained.
   EOT
-  type    = bool
-  default = true
+  type        = bool
+  default     = true
 }
 
 variable "disable_signup" {

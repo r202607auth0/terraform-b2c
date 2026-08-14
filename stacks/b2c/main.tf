@@ -3,8 +3,8 @@ locals {
 
   mgmt_api_audience = "https://${var.auth0_domain}/api/v2/"
 
-  olb_api      = "${var.api_audience_prefix}/olb"
-  support_api  = "${var.api_audience_prefix}/support"
+  olb_api     = "${var.api_audience_prefix}/olb"
+  support_api = "${var.api_audience_prefix}/support"
 
   is_prod = var.env == "prod"
 
@@ -26,17 +26,17 @@ module "apis" {
       name       = "OLB Customer API (${upper(var.env)})"
       identifier = local.olb_api
       scopes = {
-        "read:profile"                 = "Read the signed-in customer profile"
-        "update:profile"               = "Update contact details and preferences (UC-08)"
-        "read:accounts"                = "Read account summary and balances"
-        "manage:bill_payees"           = "Add or change bill payees (high-risk, UC-04)"
-        "manage:etransfer_recipients"  = "Add or change e-Transfer recipients (high-risk, UC-04)"
-        "manage:interac_profile"       = "Create or edit the Interac profile (high-risk, UC-04)"
-        "manage:cra_direct_deposit"    = "Register CRA direct deposit (high-risk, UC-04)"
-        "manage:delegates"             = "Add or manage delegates (high-risk, UC-10)"
-        "read:sessions"                = "List the customer's own active sessions (UC-09)"
-        "revoke:sessions"              = "Revoke the customer's own sessions (UC-09)"
-        "read:login_history"           = "Read the customer's own login history (UC-09)"
+        "read:profile"                = "Read the signed-in customer profile"
+        "update:profile"              = "Update contact details and preferences (UC-08)"
+        "read:accounts"               = "Read account summary and balances"
+        "manage:bill_payees"          = "Add or change bill payees (high-risk, UC-04)"
+        "manage:etransfer_recipients" = "Add or change e-Transfer recipients (high-risk, UC-04)"
+        "manage:interac_profile"      = "Create or edit the Interac profile (high-risk, UC-04)"
+        "manage:cra_direct_deposit"   = "Register CRA direct deposit (high-risk, UC-04)"
+        "manage:delegates"            = "Add or manage delegates (high-risk, UC-10)"
+        "read:sessions"               = "List the customer's own active sessions (UC-09)"
+        "revoke:sessions"             = "Revoke the customer's own sessions (UC-09)"
+        "read:login_history"          = "Read the customer's own login history (UC-09)"
       }
     }
 
@@ -44,11 +44,11 @@ module "apis" {
       name       = "OLB Support API (${upper(var.env)})"
       identifier = local.support_api
       scopes = {
-        "read:customer"            = "Look up a customer record"
-        "initiate:password_reset"  = "Trigger a password reset on the customer's behalf (UC-12)"
-        "lock:customer"            = "Lock a customer account (UC-14)"
-        "unlock:customer"          = "Unlock or unblock a customer account (UC-15)"
-        "read:audit"               = "Read the support audit trail"
+        "read:customer"           = "Look up a customer record"
+        "initiate:password_reset" = "Trigger a password reset on the customer's behalf (UC-12)"
+        "lock:customer"           = "Lock a customer account (UC-14)"
+        "unlock:customer"         = "Unlock or unblock a customer account (UC-15)"
+        "read:audit"              = "Read the support audit trail"
       }
     }
   }
@@ -110,10 +110,10 @@ module "clients" {
     },
     local.test_harness_enabled ? {
       test_harness = {
-        name        = "ZZ Test Harness - Postman (${upper(var.env)})"
-        description = "Non-production only. Enables password-realm and MFA grants so end-to-end flows can be driven headlessly before the front end exists."
-        app_type    = "regular_web"
-        callbacks   = ["https://oauth.pstmn.io/v1/callback", "http://localhost:3000/callback"]
+        name                = "ZZ Test Harness - Postman (${upper(var.env)})"
+        description         = "Non-production only. Enables password-realm and MFA grants so end-to-end flows can be driven headlessly before the front end exists."
+        app_type            = "regular_web"
+        callbacks           = ["https://oauth.pstmn.io/v1/callback", "http://localhost:3000/callback"]
         allowed_logout_urls = ["http://localhost:3000"]
         grant_types = [
           "authorization_code",

@@ -6,8 +6,8 @@ variable "policy" {
                        decides. This is the recommended value because UC-04
                        step-up and UC-02 risk rules live in code.
   EOT
-  type    = string
-  default = ""
+  type        = string
+  default     = ""
 }
 
 variable "enable_email_otp" {

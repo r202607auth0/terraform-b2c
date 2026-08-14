@@ -26,8 +26,8 @@ variable "b2b_state_key" {
     exports the four *_actions outputs; the bindings will then contain B2C
     Actions only, and B2B Actions must be listed in b2b_post_login_actions.
   EOT
-  type    = string
-  default = ""
+  type        = string
+  default     = ""
 }
 
 variable "b2b_post_login_actions" {

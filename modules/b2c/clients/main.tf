@@ -36,8 +36,8 @@ resource "auth0_client" "this" {
 resource "auth0_client_credentials" "this" {
   for_each = var.clients
 
-  client_id                                = auth0_client.this[each.key].id
-  authentication_method                    = each.value.token_endpoint_auth
+  client_id             = auth0_client.this[each.key].id
+  authentication_method = each.value.token_endpoint_auth
 }
 
 resource "auth0_client_grant" "this" {
